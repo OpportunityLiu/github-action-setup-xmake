@@ -8,13 +8,17 @@ jobs:
   checkin:
     runs-on: ubuntu-latest
 
+    concurrency:
+      group: ${{ github.ref }}-${{ github.base_ref }}-${{ github.head_ref }}-checkin
+      cancel-in-progress: true
+
     steps:
       - uses: actions/checkout@v4
       - name: install
         uses: wyvox/action-setup-pnpm@v3
         with:
-          node-version: 20
-          pnpm-version: 8
+          node-version: 23
+          pnpm-version: 9
       - name: build
         run: pnpm build
       - name: test

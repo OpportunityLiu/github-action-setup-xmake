@@ -82596,6 +82596,7 @@ async function unixInstall(version) {
                 }
                 fs.accessSync(path.join(fullCachePath, 'bin', 'xmake'), fs.constants.X_OK);
                 toolDir = fullCachePath;
+                core.info(`cache path: ${toolDir}, key: ${cacheKey}`);
             }
             catch (_c) {
                 core.warning(`No cached files found at path "${fullCachePath}".`);
@@ -82827,15 +82828,21 @@ const core = __nccwpck_require__(9093);
 const exec_1 = __nccwpck_require__(7775);
 const io = __nccwpck_require__(2826);
 const toolCache = __nccwpck_require__(5561);
+const cache = __nccwpck_require__(6878);
 const os = __nccwpck_require__(2037);
+const fs = __nccwpck_require__(7147);
 const path = __nccwpck_require__(1017);
 const semver = __nccwpck_require__(117);
+const git = __nccwpck_require__(3555);
 function getInstallerUrl(version, latest) {
-    const ver = version.version;
+    let ver = version.version;
     switch (version.type) {
         case 'heads': {
             const arch = os.arch() === 'x64' ? 'win64' : 'win32';
             const latestver = latest.version;
+            if (ver !== 'dev' && ver !== 'master') {
+                ver = latestver;
+            }
             return `https://github.com/xmake-io/xmake/releases/download/${latestver}/xmake-${ver}.${arch}.exe`;
         }
         case 'pull': {
@@ -82857,12 +82864,45 @@ function getInstallerUrl(version, latest) {
         }
     }
 }
+async function installFromSource(xmakeBin, sourceDir, binDir) {
+    await (0, exec_1.exec)(xmakeBin, ['-y'], { cwd: sourceDir });
+    await (0, exec_1.exec)(xmakeBin, ['install', '-o', binDir, 'cli'], { cwd: sourceDir });
+}
 async function winInstall(version, latest) {
+    var _a;
     if (version.type === 'local' || latest.type === 'local') {
         throw new Error('Local builds for windows is not supported');
     }
+    const actionsCacheFolder = core.getInput('actions-cache-folder');
+    let actionsCacheKey = core.getInput('actions-cache-key');
+    if (!actionsCacheKey) {
+        actionsCacheKey = '';
+    }
     const ver = version.version;
-    let toolDir = toolCache.find('xmake', ver);
+    const sha = version.sha;
+    const cacheKey = `xmake-cache-${actionsCacheKey}-${ver}-${sha}-${os.arch()}-${os.platform()}-${(_a = process.env.RUNNER_OS) !== null && _a !== void 0 ? _a : 'unknown'}`;
+    let toolDir = '';
+    if (actionsCacheFolder && process.env.GITHUB_WORKSPACE) {
+        const fullCachePath = path.join(process.env.GITHUB_WORKSPACE, actionsCacheFolder);
+        try {
+            try {
+                fs.accessSync(path.join(fullCachePath, 'xmake.exe'), fs.constants.X_OK);
+            }
+            catch (_b) {
+                await cache.restoreCache([actionsCacheFolder], cacheKey);
+            }
+            fs.accessSync(path.join(fullCachePath, 'xmake.exe'), fs.constants.X_OK);
+            toolDir = fullCachePath;
+            core.info(`cache path: ${toolDir}, key: ${cacheKey}`);
+        }
+        catch (_c) {
+            core.warning(`No cached files found at path "${fullCachePath}".`);
+            await io.rmRF(fullCachePath);
+        }
+    }
+    else {
+        toolDir = toolCache.find('xmake', ver);
+    }
     if (!toolDir) {
         const installer = await core.group(`download xmake ${String(version)}`, async () => {
             const url = getInstallerUrl(version, latest);
@@ -82887,6 +82927,29 @@ async function winInstall(version, latest) {
             await io.rmRF(installer);
             return cacheDir;
         });
+        await (0, exec_1.exec)(`"${toolDir}/xmake.exe" --version`);
+        if (version.type === 'heads') {
+            const sourceDir = await core.group(`download xmake source ${String(version)}`, () => git.create(version.repo, version.sha));
+            toolDir = await core.group(`install xmake source ${String(version)}`, async () => {
+                const binDir = path.join(os.tmpdir(), `xmake-${version.sha}`);
+                await installFromSource(`${toolDir}/xmake.exe`, `${sourceDir}/core`, binDir);
+                const cacheDir = await toolCache.cacheDir(binDir, 'xmake', ver);
+                await io.rmRF(binDir);
+                await git.cleanup(version.sha);
+                return cacheDir;
+            });
+        }
+        if (toolDir) {
+            let cacheDir = '';
+            if (actionsCacheFolder && process.env.GITHUB_WORKSPACE) {
+                cacheDir = path.join(process.env.GITHUB_WORKSPACE, actionsCacheFolder);
+                await io.cp(toolDir, cacheDir, {
+                    recursive: true,
+                });
+                await cache.saveCache([actionsCacheFolder], cacheKey);
+                toolDir = cacheDir;
+            }
+        }
     }
     core.addPath(toolDir);
 }

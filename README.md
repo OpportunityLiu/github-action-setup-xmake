@@ -85,3 +85,14 @@ git tag v1
 git push origin master
 git push --tags --force
 ```
+
+### Development and debug
+
+```bash
+git branch test
+git checkout test
+pnpm build
+pnpm release
+git-commit -a -m "..."
+git push origin test
+```

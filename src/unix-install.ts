@@ -46,6 +46,7 @@ export async function unixInstall(version: Version): Promise<void> {
                 }
                 fs.accessSync(path.join(fullCachePath, 'bin', 'xmake'), fs.constants.X_OK);
                 toolDir = fullCachePath;
+                core.info(`cache path: ${toolDir}, key: ${cacheKey}`);
             } catch {
                 core.warning(`No cached files found at path "${fullCachePath}".`);
                 await io.rmRF(fullCachePath);
